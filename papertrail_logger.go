@@ -87,8 +87,6 @@ type Logger struct {
 
 	loopWait chan struct{}
 
-	bufPool *paperTrailPool
-
 	syslogWriter *syslog.Writer
 }
 
@@ -120,7 +118,6 @@ func NewLogger(ctx context.Context, paperTrailProtocol, paperTrailURL, tag strin
 		db:               db,
 		initialDiskUsage: diskUsage(),
 		loopWait:         make(chan struct{}),
-		bufPool:          newPapertrailPool(),
 	}
 
 	p.logInfos = map[string]*logInfo{}
