@@ -38,7 +38,7 @@ const (
 	defaultMaxDiskUsage         = 5    // disk usage in percentage
 	defaultUltimateMaxDiskUsage = 99   // usage cannot go beyond this percentage value
 	defaultBatchSize            = 1000 // records
-	dbLocation                  = "./badger"
+	defaultDBLocation           = "./badger"
 	cleanUpInterval             = 5 * time.Second
 )
 
@@ -81,6 +81,8 @@ type Logger struct {
 
 	initialDiskUsage float64
 
+	maxDiskUsage float64
+
 	maxWorkers int
 
 	loopFactor *loopFactor
@@ -91,11 +93,15 @@ type Logger struct {
 }
 
 // NewLogger does some ground work and returns an instance of LoggerInterface
-func NewLogger(ctx context.Context, paperTrailProtocol, paperTrailURL, tag string, retention time.Duration) (LoggerInterface, error) {
+func NewLogger(ctx context.Context, paperTrailProtocol, paperTrailURL, tag, dbLocation string, retention time.Duration,
+	workerCount int, maxDiskUsage float64) (LoggerInterface, error) {
 	if retention.Seconds() <= float64(0) {
 		retention = defaultRetention
 	}
 	opts := badger.DefaultOptions
+	if strings.TrimSpace(dbLocation) == "" {
+		dbLocation = defaultDBLocation
+	}
 	opts.Dir = dbLocation
 	opts.ValueDir = dbLocation
 
@@ -106,6 +112,14 @@ func NewLogger(ctx context.Context, paperTrailProtocol, paperTrailURL, tag strin
 		return nil, err
 	}
 
+	if workerCount <= 0 {
+		workerCount = defaultWorkerCount
+	}
+
+	if maxDiskUsage <= 0 {
+		maxDiskUsage = defaultMaxDiskUsage
+	}
+
 	logrus.Infof("Creating a new paper trail logger for url: %s", paperTrailURL)
 
 	p := &Logger{
@@ -113,7 +127,8 @@ func NewLogger(ctx context.Context, paperTrailProtocol, paperTrailURL, tag strin
 		paperTrailProto:  getMappingProto(paperTrailProtocol),
 		tag:              tag,
 		retentionPeriod:  retention,
-		maxWorkers:       defaultWorkerCount * runtime.NumCPU(),
+		maxWorkers:       workerCount * runtime.NumCPU(),
+		maxDiskUsage:     maxDiskUsage,
 		loopFactor:       newLoopFactor(true),
 		db:               db,
 		initialDiskUsage: diskUsage(),
@@ -247,7 +262,7 @@ func (p *Logger) deleteExcess() {
 		// 	p.log.Infof("Current disk usage: %.2f %%", currentUsage)
 		// 	p.log.Infof("DB folder size: %.2f MB", computeDirectorySizeInMegs(dbLocation))
 		// }
-		if currentUsage > p.initialDiskUsage+defaultMaxDiskUsage || currentUsage > defaultUltimateMaxDiskUsage {
+		if currentUsage > p.initialDiskUsage+p.maxDiskUsage || currentUsage > defaultUltimateMaxDiskUsage {
 			// delete from beginning
 			iterations := defaultBatchSize
 			err := p.db.View(func(txn *badger.Txn) error {
