@@ -29,7 +29,7 @@ import (
 
 	"github.com/dgraph-io/badger"
 	"github.com/pkg/errors"
-	uuid "github.com/satori/go.uuid"
+	"github.com/satori/go.uuid"
 	"github.com/sirupsen/logrus"
 )
 
@@ -109,7 +109,15 @@ func NewLogger(ctx context.Context, paperTrailProtocol, paperTrailURL, tag, dbLo
 	if err != nil {
 		err = errors.Wrap(err, "error while opening a local db instance")
 		logrus.Error(err)
-		return nil, err
+		dbLocation = fmt.Sprintf("%s_%s", dbLocation, uuid.NewV4().Bytes())
+		opts.Dir = dbLocation
+		opts.ValueDir = dbLocation
+		db, err = badger.Open(opts)
+		if err != nil {
+			err = errors.Wrap(err, "error while opening a local db instance")
+			logrus.Error(err)
+			return nil, err
+		}
 	}
 
 	if workerCount <= 0 {
@@ -120,11 +128,13 @@ func NewLogger(ctx context.Context, paperTrailProtocol, paperTrailURL, tag, dbLo
 		maxDiskUsage = defaultMaxDiskUsage
 	}
 
-	logrus.Infof("Creating a new paper trail logger for url: %s", paperTrailURL)
+	logrus.Infof("Creating a new paper trail logger for url: %s, protocol: %s", paperTrailURL, paperTrailProtocol)
+
+	protocol := getMappingProto(paperTrailProtocol)
 
 	p := &Logger{
 		paperTrailURL:    paperTrailURL,
-		paperTrailProto:  getMappingProto(paperTrailProtocol),
+		paperTrailProto:  protocol,
 		tag:              tag,
 		retentionPeriod:  retention,
 		maxWorkers:       workerCount * runtime.NumCPU(),
@@ -293,8 +303,12 @@ func (p *Logger) deleteExcess() {
 
 // Close - closes the Logger instance
 func (p *Logger) Close() error {
+	logrus.Info("closing papertrail logger instance")
 	p.loopFactor.setBool(false)
-	defer close(p.loopWait)
+	defer func() {
+		close(p.loopWait)
+		logrus.Info("papertrail instance closed")
+	}()
 	if p.paperTrailProto != UDP && p.syslogWriter != nil {
 		if err := p.syslogWriter.Close(); err != nil {
 			err = errors.Wrapf(err, "error while closing syslog writer")
@@ -305,7 +319,7 @@ func (p *Logger) Close() error {
 	time.Sleep(time.Second)
 	if p.db != nil {
 		if err := p.db.Close(); err != nil {
-			err = errors.Wrapf(err, "error while closing syslog writer")
+			err = errors.Wrapf(err, "error while closing DB")
 			logrus.Error(err)
 			return err
 		}
@@ -318,7 +332,7 @@ func (p *Logger) cleanup() {
 	for p.loopFactor.getBool() {
 		if p.db != nil {
 			logrus.Debug("cleanup - running GC")
-			_ = p.db.PurgeOlderVersions()
+			//_ = p.db.PurgeOlderVersions()
 			_ = p.db.RunValueLogGC(0.99)
 		}
 		time.Sleep(cleanUpInterval)

@@ -23,8 +23,8 @@
     "table",
     "y"
   ]
-  revision = "69611218c7078be6de16f4ea13fb256e701b6b73"
-  version = "v1.3.0"
+  revision = "3ff1bfbb11c02c78c11269096669396c2d2cbbd3"
+  version = "v1.5.0"
 
 [[projects]]
   branch = "master"
@@ -84,6 +84,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "3e160eca4a7a66cb46025073275dfdb5cf8b79cc3abe51d1ac54f40137230171"
+  inputs-digest = "3d22d9549e702986c537368b050200a566cecd8dd7aaefce9a4f1fe2c24ca765"
   solver-name = "gps-cdcl"
   solver-version = 1
