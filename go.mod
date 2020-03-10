@@ -1,4 +1,4 @@
-module github.com/solarwinds/papertrail_go
+module github.com/solarwinds/papertrail-go
 
 go 1.14
 

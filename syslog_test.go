@@ -1,4 +1,4 @@
-package papertrail_go
+package papertrailgo
 
 import (
 	"testing"

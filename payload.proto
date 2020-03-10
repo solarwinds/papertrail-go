@@ -4,7 +4,7 @@ package solarwinds.papertrail;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package=".;papertrail_go";
+option go_package=".;papertrailgo";
 
 message Payload {
     string hostname = 1;
