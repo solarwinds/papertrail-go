@@ -14,7 +14,7 @@
 
 //go:generate protoc -I ./ payload.proto --go_out=./
 
-package papertrailgo
+package papertrail_go
 
 import (
 	"context"

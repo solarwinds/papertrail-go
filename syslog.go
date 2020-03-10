@@ -1,4 +1,4 @@
-package papertrailgo
+package papertrail_go
 
 import (
 	"crypto/x509"
