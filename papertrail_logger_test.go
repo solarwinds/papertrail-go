@@ -48,8 +48,8 @@ func TestNewPapertrailLogger(t *testing.T) {
 			args: args{
 				ctx:                context.Background(),
 				paperTrailProtocol: "udp",
-				paperTrailHost:     "logs5.papertrailapp.com",
-				paperTrailPort:     29646,
+				paperTrailHost:     "logsX.papertrailapp.com",
+				paperTrailPort:     12122,
 				dbLocation:         os.TempDir(),
 				retention:          time.Minute * 5,
 				workerCount:        4,
