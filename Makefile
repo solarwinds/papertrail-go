@@ -1,17 +1,23 @@
+setup-tools:
+	GO111MODULE=off go get -u github.com/mgechev/revive;
+	GO111MODULE=off go get -u github.com/kisielk/errcheck;
+	GO111MODULE=off go get -u honnef.co/go/tools/cmd/staticcheck;
+	GO111MODULE=off go get -u github.com/securego/gosec/cmd/gosec
+
 lint:
-	go get -u github.com/mgechev/revive; $(GOPATH)/bin/revive -config revive.toml
+	$(GOPATH)/bin/revive -config revive.toml
 
 error_check:
-	go get -u github.com/kisielk/errcheck; $(GOPATH)/bin/errcheck ./...
+	$(GOPATH)/bin/errcheck ./...
 
 static_check:
-	go get -u honnef.co/go/tools/cmd/staticcheck; $(GOPATH)/bin/staticcheck -checks all ./...
+	$(GOPATH)/bin/staticcheck -checks all ./...
 
 vet:
 	go vet ./...
 
 sec_check:
-	go get github.com/securego/gosec/cmd/gosec; $(GOPATH)/bin/gosec ./...
+	$(GOPATH)/bin/gosec ./...
 
 tests:
 	go test -v ./...
