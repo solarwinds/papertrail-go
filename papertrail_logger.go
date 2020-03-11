@@ -253,14 +253,11 @@ func (p *Logger) flushWorker(hose chan []byte, wg *sync.WaitGroup) {
 				return err
 			}
 			p.sendLogs(payload)
-			// err = p.sendLogs(payload)
-			// if err == nil {
 			logrus.Debugf("flushLogs, delete key: %s", key)
 			err = txn.Delete(key)
 			if err != nil {
 				return err
 			}
-			// }
 			return nil
 		})
 		if err != nil {
