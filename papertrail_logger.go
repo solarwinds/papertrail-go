@@ -315,11 +315,12 @@ func (p *Logger) Close() error {
 		close(p.loopWait)
 		logrus.Info("papertrail instance closed")
 	}()
-	if err := p.syslogWriter.Close(); err != nil {
-		err = errors.Wrapf(err, "error while closing syslog writer")
-		logrus.Error(err)
-		return err
-	}
+	_ = p.syslogWriter.Close()
+	// if err := p.syslogWriter.Close(); err != nil {
+	// 	err = errors.Wrapf(err, "error while closing syslog writer")
+	// 	logrus.Error(err)
+	// 	return err
+	// }
 
 	time.Sleep(time.Second)
 	if p.db != nil {

@@ -19,5 +19,7 @@ vet:
 sec_check:
 	$(GOPATH)/bin/gosec ./...
 
+all_checks: vet lint error_check sec_check static_check
+
 tests:
 	go test -v ./...
