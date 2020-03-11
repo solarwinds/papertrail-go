@@ -14,6 +14,7 @@
 
 //go:generate protoc -I ./ payload.proto --go_out=./
 
+// Package papertrailgo is a Go library package which contains code for shipping logs to papertrail
 package papertrailgo
 
 import (
@@ -104,6 +105,7 @@ func NewPapertrailLoggerWithShipper(ctx context.Context, dbLocation string, rete
 		logrus.Error(err)
 		// attempting to use a different location
 		dbLocation = fmt.Sprintf("%s_%s", dbLocation, uuid.NewV4().Bytes())
+		opts = badger.DefaultOptions(dbLocation).WithLogger(l)
 		db, err = badger.Open(opts)
 		if err != nil {
 			err = errors.Wrap(err, "error while opening a local db instance")

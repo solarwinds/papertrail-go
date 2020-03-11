@@ -26,6 +26,8 @@ import (
 )
 
 func TestNewPapertrailLogger(t *testing.T) {
+	t.SkipNow()
+
 	logrus.SetLevel(logrus.DebugLevel)
 	type args struct {
 		ctx                context.Context
