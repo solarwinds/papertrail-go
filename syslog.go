@@ -46,7 +46,7 @@ func NewPapertailShipper(paperTrailProtocol, paperTrailHost string, paperTrailPo
 		if err != nil {
 			return nil, err
 		}
-		logrus.Infof("retrieved root CA: %+v", rootCAs)
+		logrus.Debugf("retrieved root CA: %+v", rootCAs)
 	}
 	raddr := net.JoinHostPort(paperTrailHost, strconv.Itoa(paperTrailPort))
 	logrus.Infof("Connecting to %s over %s", raddr, paperTrailProtocol)
