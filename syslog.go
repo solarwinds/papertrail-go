@@ -40,11 +40,13 @@ func NewPapertailShipper(paperTrailProtocol, paperTrailHost string, paperTrailPo
 	}
 
 	// add the papertrail root CA if necessary
-	if strings.Contains(strings.TrimSpace(paperTrailProtocol), "tls") && strings.HasSuffix(paperTrailHost, "papertrailapp.com") {
+	if strings.Contains(strings.TrimSpace(paperTrailProtocol), "tls") && strings.HasSuffix(strings.ToLower(paperTrailHost), "papertrailapp.com") {
+		logrus.Infof("retrieving root CAs for Papertrail")
 		rootCAs, err = getRootCAs()
 		if err != nil {
 			return nil, err
 		}
+		logrus.Infof("retrieved root CA: %+v", rootCAs)
 	}
 	raddr := net.JoinHostPort(paperTrailHost, strconv.Itoa(paperTrailPort))
 	logrus.Infof("Connecting to %s over %s", raddr, paperTrailProtocol)
