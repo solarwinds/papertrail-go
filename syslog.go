@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 )
 
 const papertrailRootCAsURL = "https://papertrailapp.com/tools/papertrail-bundle.pem"
+const papertrailRootCAFile = "/etc/ssl/certs/papertrail-bundle.pem"
 
 type papertrailShipper interface {
 	Write(packet syslog.Packet)
@@ -91,12 +93,24 @@ func getCerts() ([]byte, error) {
 
 func getRootCAs() (*x509.CertPool, error) {
 	pool := *x509.NewCertPool()
-	certs, err := getCerts()
-	if err != nil {
-		return nil, err
+	var certs []byte
+	var err error
+	if _, err = os.Stat(papertrailRootCAFile); err == nil {
+		certs, err = ioutil.ReadFile(papertrailRootCAFile)
+		if err != nil {
+			logrus.Warnf("unable to read papertrail CA file from disk: %s, proceeding to fetch the cert...", papertrailRootCAFile)
+		} else {
+			logrus.Infof("using the papertrail root CA file from the local filesystem")
+		}
 	}
-	ok := pool.AppendCertsFromPEM(certs)
-	if !ok {
+	if certs == nil {
+		logrus.Infof("unable to find a valid papertrail root CA file in the local filesystem, attempting to fetch from %s", papertrailRootCAsURL)
+		certs, err = getCerts()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if ok := pool.AppendCertsFromPEM(certs); !ok {
 		err := errors.New("unable to append certs")
 		logrus.Error(err)
 		return nil, err

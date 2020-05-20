@@ -27,7 +27,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/dgraph-io/badger"
+	badger "github.com/dgraph-io/badger/v2"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/papertrail/remote_syslog2/syslog"
 	"github.com/pkg/errors"
