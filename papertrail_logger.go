@@ -1,4 +1,4 @@
-// Copyright 2018 Solarwinds Inc.
+// Copyright 2020 Solarwinds Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package papertrail_go
+//go:generate protoc -I ./ payload.proto --go_out=./
+
+// Package papertrailgo is a Go library package which contains code for shipping logs to papertrail
+package papertrailgo
 
 import (
 	"context"
 	"fmt"
-	"html/template"
 	"os"
 	"runtime"
 	"strings"
@@ -25,12 +27,13 @@ import (
 	"syscall"
 	"time"
 
-	syslog "github.com/RackSec/srslog"
-
-	"github.com/dgraph-io/badger"
+	badger "github.com/dgraph-io/badger/v2"
+	"github.com/golang/protobuf/ptypes"
+	"github.com/papertrail/remote_syslog2/syslog"
 	"github.com/pkg/errors"
-	"github.com/satori/go.uuid"
+	uuid "github.com/satori/go.uuid"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -47,37 +50,17 @@ var (
 	defaultRetention   = 24 * time.Hour
 )
 
-type logInfo struct {
-	tmpl *template.Template
-}
-
 // LoggerInterface is the interface for all Papertrail logger types
 type LoggerInterface interface {
-	Log(string) error
+	Log(*Payload) error
 	Close() error
 }
 
-type proto string
-
-const (
-	UDP     proto = "udp"
-	TCP     proto = "tcp"
-	TCP_TLS proto = "tcp+tls"
-)
-
 // Logger is a concrete type of LoggerInterface which collects and ships logs to Papertrail
 type Logger struct {
-	paperTrailURL string
-
-	paperTrailProto proto
-
-	tag string
-
 	retentionPeriod time.Duration
 
 	db *badger.DB
-
-	logInfos map[string]*logInfo
 
 	initialDiskUsage float64
 
@@ -89,29 +72,40 @@ type Logger struct {
 
 	loopWait chan struct{}
 
-	syslogWriter *syslog.Writer
+	syslogWriter papertrailShipper
 }
 
-// NewLogger does some ground work and returns an instance of LoggerInterface
-func NewLogger(ctx context.Context, paperTrailProtocol, paperTrailURL, tag, dbLocation string, retention time.Duration,
-	workerCount int, maxDiskUsage float64) (LoggerInterface, error) {
+// NewPapertrailLogger creates a papertrail log shipper and also returns an instance of Logger
+func NewPapertrailLogger(ctx context.Context, paperTrailProtocol, paperTrailHost string, paperTrailPort int, dbLocation string, retention time.Duration,
+	workerCount int, maxDiskUsage float64) (*Logger, error) {
+	sLogWriter, err := NewPapertailShipper(paperTrailProtocol, paperTrailHost, paperTrailPort)
+	if err != nil {
+		err = errors.Wrap(err, "error while creating a papertrail shipper instance")
+		logrus.Error(err)
+		return nil, err
+	}
+	return NewPapertrailLoggerWithShipper(ctx, dbLocation, retention, workerCount, maxDiskUsage, sLogWriter)
+}
+
+// NewPapertrailLoggerWithShipper does some ground work and returns an instance of Logger
+func NewPapertrailLoggerWithShipper(ctx context.Context, dbLocation string, retention time.Duration,
+	workerCount int, maxDiskUsage float64, sLogWriter papertrailShipper) (*Logger, error) {
 	if retention.Seconds() <= float64(0) {
 		retention = defaultRetention
 	}
-	opts := badger.DefaultOptions
 	if strings.TrimSpace(dbLocation) == "" {
 		dbLocation = defaultDBLocation
 	}
-	opts.Dir = dbLocation
-	opts.ValueDir = dbLocation
-
+	l := logrus.New()
+	l.SetLevel(logrus.GetLevel())
+	opts := badger.DefaultOptions(dbLocation).WithLogger(l)
 	db, err := badger.Open(opts)
 	if err != nil {
 		err = errors.Wrap(err, "error while opening a local db instance")
 		logrus.Error(err)
+		// attempting to use a different location
 		dbLocation = fmt.Sprintf("%s_%s", dbLocation, uuid.NewV4().Bytes())
-		opts.Dir = dbLocation
-		opts.ValueDir = dbLocation
+		opts = badger.DefaultOptions(dbLocation).WithLogger(l)
 		db, err = badger.Open(opts)
 		if err != nil {
 			err = errors.Wrap(err, "error while opening a local db instance")
@@ -128,14 +122,13 @@ func NewLogger(ctx context.Context, paperTrailProtocol, paperTrailURL, tag, dbLo
 		maxDiskUsage = defaultMaxDiskUsage
 	}
 
-	logrus.Infof("Creating a new paper trail logger for url: %s, protocol: %s", paperTrailURL, paperTrailProtocol)
-
-	protocol := getMappingProto(paperTrailProtocol)
+	if sLogWriter == nil {
+		err = errors.New("error: given syslog writer instance is nil")
+		logrus.Error(err)
+		return nil, err
+	}
 
 	p := &Logger{
-		paperTrailURL:    paperTrailURL,
-		paperTrailProto:  protocol,
-		tag:              tag,
 		retentionPeriod:  retention,
 		maxWorkers:       workerCount * runtime.NumCPU(),
 		maxDiskUsage:     maxDiskUsage,
@@ -143,9 +136,9 @@ func NewLogger(ctx context.Context, paperTrailProtocol, paperTrailURL, tag, dbLo
 		db:               db,
 		initialDiskUsage: diskUsage(),
 		loopWait:         make(chan struct{}),
-	}
 
-	p.logInfos = map[string]*logInfo{}
+		syslogWriter: sLogWriter,
+	}
 
 	go p.flushLogs()
 	go p.deleteExcess()
@@ -154,11 +147,27 @@ func NewLogger(ctx context.Context, paperTrailProtocol, paperTrailURL, tag, dbLo
 }
 
 // Log method receives log messages
-func (p *Logger) Log(payload string) error {
-	if len(payload) > 0 {
+func (p *Logger) Log(payload *Payload) error {
+	if payload == nil || payload.Log == "" {
+		err := errors.New("given payload is empty")
+		logrus.Error(err)
+		return err
+	}
+	if payload.LogTime == nil {
+		payload.LogTime = ptypes.TimestampNow()
+	}
+	data, err := proto.Marshal(payload)
+	if err != nil {
+		err = errors.Wrapf(err, "error marshalling payload")
+		logrus.Error(err)
+		return err
+	}
+
+	if len(data) > 0 {
 		guuid := uuid.NewV4()
 		if err := p.db.Update(func(txn *badger.Txn) error {
-			return txn.SetWithTTL([]byte(fmt.Sprintf(keyFormat, time.Now().UnixNano(), guuid)), []byte(payload), p.retentionPeriod)
+			logrus.Debug("log line received, marshalled and persisting to local db")
+			return txn.SetEntry(badger.NewEntry([]byte(fmt.Sprintf(keyFormat, time.Now().UnixNano(), guuid)), data).WithTTL(p.retentionPeriod))
 		}); err != nil {
 			err = errors.Wrapf(err, "error persisting log to local db")
 			logrus.Error(err)
@@ -168,27 +177,18 @@ func (p *Logger) Log(payload string) error {
 	return nil
 }
 
-func (p *Logger) sendLogs(data string) error {
-	var err error
-	if p.paperTrailProto == UDP || p.syslogWriter == nil {
-		logrus.Debugf("protocol: %s, url: %s", p.paperTrailProto, p.paperTrailURL)
-		p.syslogWriter, err = syslog.Dial(string(p.paperTrailProto), p.paperTrailURL, syslog.LOG_EMERG|syslog.LOG_KERN, p.tag)
-		if err != nil {
-			err = errors.Wrapf(err, "failed to dial syslog")
-			logrus.Error(err)
-			return err
-		}
-	}
-	if p.paperTrailProto == UDP {
-		defer p.syslogWriter.Close()
-	}
-
-	if err = p.syslogWriter.Info(data); err != nil {
-		err = errors.Wrapf(err, "failed to send log msg to papertrail")
-		logrus.Error(err)
-		return err
-	}
-	return nil
+func (p *Logger) sendLogs(payload *Payload) {
+	logrus.Debugf("sending log to papertrail: %+v", payload)
+	ts, _ := ptypes.Timestamp(payload.GetLogTime()) // we can skip err check here
+	priority := syslog.SevNotice
+	p.syslogWriter.Write(syslog.Packet{
+		Severity: syslog.Priority(priority),
+		// Facility: syslog.Priority(priority),
+		Hostname: payload.GetHostname(),
+		Tag:      payload.GetTag(),
+		Time:     ts,
+		Message:  payload.GetLog(),
+	})
 }
 
 // This should be run in a routine
@@ -247,13 +247,16 @@ func (p *Logger) flushWorker(hose chan []byte, wg *sync.WaitGroup) {
 				}
 				return err
 			}
-			err = p.sendLogs(string(val))
-			if err == nil {
-				logrus.Debugf("flushLogs, delete key: %s", key)
-				err := txn.Delete(key)
-				if err != nil {
-					return err
-				}
+			payload := &Payload{}
+			if err := proto.Unmarshal(val, payload); err != nil {
+				err = errors.Wrap(err, "unmarshal error")
+				return err
+			}
+			p.sendLogs(payload)
+			logrus.Debugf("flushLogs, delete key: %s", key)
+			err = txn.Delete(key)
+			if err != nil {
+				return err
 			}
 			return nil
 		})
@@ -309,13 +312,13 @@ func (p *Logger) Close() error {
 		close(p.loopWait)
 		logrus.Info("papertrail instance closed")
 	}()
-	if p.paperTrailProto != UDP && p.syslogWriter != nil {
-		if err := p.syslogWriter.Close(); err != nil {
-			err = errors.Wrapf(err, "error while closing syslog writer")
-			logrus.Error(err)
-			return err
-		}
-	}
+	_ = p.syslogWriter.Close()
+	// if err := p.syslogWriter.Close(); err != nil {
+	// 	err = errors.Wrapf(err, "error while closing syslog writer")
+	// 	logrus.Error(err)
+	// 	return err
+	// }
+
 	time.Sleep(time.Second)
 	if p.db != nil {
 		if err := p.db.Close(); err != nil {
@@ -358,14 +361,3 @@ func diskUsage() float64 {
 //	})
 //	return float64(atomic.LoadInt64(&sizeAccumulator)) / (1024 * 1024)
 //}
-
-func getMappingProto(protocol string) proto {
-	switch strings.TrimSpace(strings.ToLower(protocol)) {
-	case "tcp+tls":
-		return TCP_TLS
-	case "tcp":
-		return TCP
-	default:
-		return UDP
-	}
-}
