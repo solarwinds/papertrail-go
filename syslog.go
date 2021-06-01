@@ -152,7 +152,7 @@ func (s *SrslogShipper) Write(packet *SyslogPacket) (err error) {
 
 	// msg := fmt.Sprintf("%s - %s - %s - %s", packet.Hostname, tag, timestamp, packet.Message)
 
-	msg := fmt.Sprintf("<%d>1 %s - %s - %s - %s", packet.Severity, packet.Hostname, tag, timestamp, packet.Message)
+	msg := fmt.Sprintf("%s - %s - %s - %s", packet.Hostname, tag, timestamp, packet.Message)
 
 	_, err = s.writer.WriteWithPriority(packet.Severity, []byte(msg))
 	return err
