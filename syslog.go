@@ -136,7 +136,7 @@ func (s *SrslogShipper) Write(packet *SyslogPacket) (err error) {
 
 	tag := packet.Tag
 	if s.tag != "" {
-		tag = fmt.Sprintf("%s/%s", s.tag, tag)
+		tag = fmt.Sprintf("%s - %s", s.tag, tag)
 	}
 
 	timestamp := ts.Format(time.RFC3339)
